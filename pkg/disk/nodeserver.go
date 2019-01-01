@@ -46,7 +46,7 @@ type nodeServer struct {
 func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error) {
 	// check target mount path
 	targetPath := req.GetTargetPath()
-	log.Infof("NodePublishVolume: Starting with ", targetPath)
+	log.Infof("NodePublishVolume: Starting with %s", targetPath)
 	if !strings.HasSuffix(targetPath, "/mount") {
 		return nil, status.Errorf(codes.InvalidArgument, "malformed the value of target path: %s", targetPath)
 	}
@@ -169,6 +169,7 @@ func (ns *nodeServer) getAttachedDevice(diskId string) (string, error) {
 	}
 
 	disk := disks[0]
+	log.Infof("NodeUnpublishVolume: Get detailed infro for disk %s", diskId)
 	if disk.Status == ecs.DiskStatusInUse && disk.InstanceId == instanceId {
 		// From the api, disk.Device always in format like xvda
 		device := disk.Device
