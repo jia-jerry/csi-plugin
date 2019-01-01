@@ -218,20 +218,20 @@ func (cs *controllerServer) ControllerUnpublishVolume(ctx context.Context, req *
 	if disk.InstanceId != "" {
 		// only detach disk on self instance
 		if disk.InstanceId != instanceId {
-			log.Infof("Skip Detach, disk %s is attached to %s", req.VolumeId, disk.InstanceId)
+			log.Infof("ControllerUnpublishVolume: Skip Detach, disk %s is attached to %s", req.VolumeId, disk.InstanceId)
 			return &csi.ControllerUnpublishVolumeResponse{}, nil
 		}
 		err = cs.EcsClient.DetachDisk(disk.InstanceId, disk.DiskId)
 		if err != nil {
-			log.Errorf("NodeUnpublishVolume: fail to detach %s: %v ", disk.DiskId, err.Error())
+			log.Errorf("ControllerUnpublishVolume: fail to detach %s: %v ", disk.DiskId, err.Error())
 			return nil, status.Error(codes.Internal, "Detach error: "+err.Error())
 		}
 		// Step 3: wait for detach
 		if !cs.checkVolumeStatus(ecs.DiskStatusAvailable, req.VolumeId) {
-			log.Errorf("NodeUnpublishVolume: Can't verify disk %s is detached from the instance %s", req.GetVolumeId(), GetMetaData("instance-id"))
+			log.Errorf("ControllerUnpublishVolume: Can't verify disk %s is detached from the instance %s", req.GetVolumeId(), GetMetaData("instance-id"))
 			return nil, fmt.Errorf("Can't verify disk %s is detached from the instance %s", req.GetVolumeId(), GetMetaData("instance-id"))
 		}
-		log.Infof("NodeUnpublishVolume: Success to detach disk %s from %s", req.GetVolumeId(), req.GetNodeId())
+		log.Infof("ControllerUnpublishVolume: Success to detach disk %s from %s", req.GetVolumeId(), req.GetNodeId())
 
 	} // else, it is detached
 
