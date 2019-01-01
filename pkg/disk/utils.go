@@ -23,12 +23,13 @@ import (
 	"os"
 	"os/exec"
 
+	"path/filepath"
+	"strconv"
+
 	"github.com/denverdino/aliyungo/common"
 	"github.com/denverdino/aliyungo/ecs"
 	"github.com/denverdino/aliyungo/metadata"
 	"k8s.io/kubernetes/pkg/util/keymutex"
-	"path/filepath"
-	"strconv"
 )
 
 const (
@@ -143,10 +144,6 @@ func GetLocalAK() (string, string) {
 	}
 
 	return accessKeyID, accessSecret
-}
-
-func volumeStautsNone(targetPath string) {
-	diskVolumeList[targetPath] = VOLUME_NONE
 }
 
 func GetDeviceMountNum(targetPath string) int {

@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"errors"
+
 	log "github.com/Sirupsen/logrus"
 	"github.com/container-storage-interface/spec/lib/go/csi/v0"
 	"github.com/denverdino/aliyungo/common"
@@ -189,9 +190,96 @@ func (cs *controllerServer) ValidateVolumeCapabilities(ctx context.Context, req 
 }
 
 func (cs *controllerServer) ControllerUnpublishVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) (*csi.ControllerUnpublishVolumeResponse, error) {
+	log.Infof("ControllerUnpublishVolume: Start to detach disk %s from %s", req.GetVolumeId(), req.GetNodeId())
+
+	// Step 1: init ecs client and parameters
+	cs.initEcsClient()
+	regionId := GetMetaData("region-id")
+	instanceId := GetMetaData("instance-id")
+
+	// Step 2: List disk first
+	describeDisksRequest := &ecs.DescribeDisksArgs{
+		RegionId: common.Region(regionId),
+		DiskIds:  []string{req.VolumeId},
+	}
+	disks, _, err := cs.EcsClient.DescribeDisks(describeDisksRequest)
+	if err != nil {
+		log.Errorf("ControllerUnpublishVolume: Failed to find disk %v ", err.Error())
+		return nil, status.Error(codes.Internal, err.Error())
+		//utils.FinishError("Failed to list Volume: " + volumeName + ", with error: " + err.Error())
+	}
+	if len(disks) == 0 {
+		log.Warnf("ControllerUnpublishVolume: Can't find disk %s, no need to detach", req.VolumeId)
+		return &csi.ControllerUnpublishVolumeResponse{}, nil
+	}
+
+	// Step 3: Detach disk
+	disk := disks[0]
+	if disk.InstanceId != "" {
+		// only detach disk on self instance
+		if disk.InstanceId != instanceId {
+			log.Infof("Skip Detach, disk %s is attached to %s", req.VolumeId, disk.InstanceId)
+			return &csi.ControllerUnpublishVolumeResponse{}, nil
+		}
+		err = cs.EcsClient.DetachDisk(disk.InstanceId, disk.DiskId)
+		if err != nil {
+			log.Errorf("NodeUnpublishVolume: fail to detach %s: %v ", disk.DiskId, err.Error())
+			return nil, status.Error(codes.Internal, "Detach error: "+err.Error())
+		}
+		// Step 3: wait for detach
+		if !cs.checkVolumeStatus(ecs.DiskStatusAvailable, req.VolumeId) {
+			log.Errorf("NodeUnpublishVolume: Can't verify disk %s is detached from the instance %s", req.GetVolumeId(), GetMetaData("instance-id"))
+			return nil, fmt.Errorf("Can't verify disk %s is detached from the instance %s", req.GetVolumeId(), GetMetaData("instance-id"))
+		}
+		log.Infof("NodeUnpublishVolume: Success to detach disk %s from %s", req.GetVolumeId(), req.GetNodeId())
+
+	} // else, it is detached
+
 	return &csi.ControllerUnpublishVolumeResponse{}, nil
 }
 
 func (cs *controllerServer) ControllerPublishVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (*csi.ControllerPublishVolumeResponse, error) {
-	return &csi.ControllerPublishVolumeResponse{}, nil
+	log.Infof("ControllerPublishVolume: Start to attach disk %s to %s", req.GetVolumeId(), req.GetNodeId())
+	// Step 1: init ecs client and parameters
+	cs.initEcsClient()
+
+	// Step 2: begin to attach
+	attachRequest := &ecs.AttachDiskArgs{
+		InstanceId: GetMetaData("instance-id"),
+		DiskId:     req.VolumeId,
+	}
+
+	if err := cs.EcsClient.AttachDisk(attachRequest); err != nil {
+		log.Errorf("ControllerPublishVolume: Fail to attach disk %s to %s", req.GetVolumeId(), req.GetNodeId())
+		return nil, err
+	}
+
+	// Step 3: wait for attach
+	if cs.checkVolumeStatus(ecs.DiskStatusInUse, req.VolumeId) {
+		log.Infof("ControllerPublishVolume: Success to attach disk %s to %s", req.GetVolumeId(), req.GetNodeId())
+
+		return &csi.ControllerPublishVolumeResponse{}, nil
+	}
+
+	return nil, fmt.Errorf("Can't verify disk %s is attached to the instance %s", req.VolumeId, GetMetaData("instance-id"))
+}
+
+func (cs *controllerServer) checkVolumeStatus(expectStatus ecs.DiskStatus, diskId string) bool {
+	describeDisksRequest := &ecs.DescribeDisksArgs{
+		DiskIds:  []string{diskId},
+		RegionId: common.Region(GetMetaData("region-id")),
+	}
+
+	for tryCount := 3; tryCount > 0; tryCount-- {
+		time.Sleep(1000 * time.Millisecond)
+		disks, _, err := cs.EcsClient.DescribeDisks(describeDisksRequest)
+		if err != nil {
+			continue
+		}
+		if len(disks) >= 1 && disks[0].Status == expectStatus {
+			return true
+		}
+	}
+
+	return false
 }
