@@ -57,6 +57,7 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 		log.Errorf("NodePublishVolume: %v", err.Error())
 		return nil, status.Error(codes.Internal, err.Error())
 	}
+	log.Infof("NodePublishVolume: Get source device: %s", devicePath)
 
 	// check target mountpath is mounted
 	notMnt, err := mount.New(devicePath).IsLikelyNotMountPoint(targetPath)
