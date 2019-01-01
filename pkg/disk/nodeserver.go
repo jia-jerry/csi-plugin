@@ -169,14 +169,11 @@ func (ns *nodeServer) getAttachedDevice(diskId string) (string, error) {
 	}
 
 	disk := disks[0]
-	log.Infof("NodePublishVolume: Get detailed infro for disk %s: %v", diskId, disk)
 	if disk.Status == ecs.DiskStatusInUse && disk.InstanceId == instanceId {
-		// From the api, disk.Device always in format like xvda
+		// From the api, disk.Device always in format like /dev/xvda, we should get /dev/vda
 		device := disk.Device
-		log.Debug("NodePublishVolume: device: %s", device)
-		if strings.HasPrefix(device, "x") {
-			device = strings.TrimPrefix(device, "x")
-			log.Debug("NodePublishVolume: After trim device: %s", device)
+		if strings.HasPrefix(device, "/dev/x") {
+			device = strings.Replace(device, "/dev/x", "/dev/", 1)
 		}
 		return device, nil
 	} else {
