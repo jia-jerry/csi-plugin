@@ -167,8 +167,14 @@ func (ns *nodeServer) getAttachedDevice(diskId string) (string, error) {
 		return "", fmt.Errorf("Can't find disk by id: %s", diskId)
 	}
 
-	if disks[0].Status == ecs.DiskStatusInUse && disks[0].InstanceId == instanceId {
-		return disks[0].Device, nil
+	disk := disks[0]
+	if disk.Status == ecs.DiskStatusInUse && disk.InstanceId == instanceId {
+		// From the api, disk.Device always in format like xvda
+		device := disk.Device
+		if strings.HasPrefix(device, "x") {
+			device = strings.TrimPrefix(device, "x")
+		}
+		return device, nil
 	} else {
 		return "", fmt.Errorf("Disk[%s] is not attached to instance[%s]", diskId, instanceId)
 	}
