@@ -229,11 +229,7 @@ func (cs *controllerServer) ControllerUnpublishVolume(ctx context.Context, req *
 			log.Errorf("ControllerUnpublishVolume: fail to detach %s: %v ", disk.DiskId, err.Error())
 			return nil, status.Error(codes.Internal, "Detach error: "+err.Error())
 		}
-		// Step 3: wait for detach
-		if !cs.checkVolumeStatus(ecs.DiskStatusAvailable, req.VolumeId) {
-			log.Errorf("ControllerUnpublishVolume: Can't verify disk %s is detached from the instance %s", req.GetVolumeId(), GetMetaData("instance-id"))
-			return nil, status.Errorf(codes.Internal, "Can't verify disk %s is detached from the instance %s", req.GetVolumeId(), GetMetaData("instance-id"))
-		}
+
 		log.Infof("ControllerUnpublishVolume: Success to detach disk %s from %s", req.GetVolumeId(), req.GetNodeId())
 
 	} // else, it is detached
