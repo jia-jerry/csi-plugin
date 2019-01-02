@@ -6,6 +6,5 @@ RUN yum install -y e4fsprogs
 
 COPY csi-diskplugin /bin/csi-diskplugin
 RUN chmod +x /bin/csi-diskplugin
-RUN chmod 755 /nsenter
 
 ENTRYPOINT ["/bin/csi-diskplugin"]
