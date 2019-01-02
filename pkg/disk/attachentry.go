@@ -14,7 +14,7 @@ func init() {
 	DefaultAttachEntry = &attachEntry{}
 }
 
-var logPath = "/var/lib/csi/mount-entries"
+var logPath = "/var/lib/kubelet/plugins/csi-diskplugin/mount-entries"
 
 type AttachEntry interface {
 	Get(diskID string) (string, error)
