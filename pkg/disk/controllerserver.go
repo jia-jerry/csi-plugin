@@ -40,7 +40,7 @@ type controllerServer struct {
 	region      common.Region
 	diskVolumes map[string]*csi.Volume
 	*csicommon.DefaultControllerServer
-	sync.Locker
+	sync.RWMutex
 }
 
 var newVolumes = map[string]*csi.Volume{}
