@@ -251,6 +251,13 @@ func (cs *controllerServer) ControllerPublishVolume(ctx context.Context, req *cs
 	defer cs.Unlock()
 
 	log.Infof("ControllerPublishVolume: Start to attach disk %s to %s", req.GetVolumeId(), req.GetNodeId())
+
+	// This function will pending the caller, and the caller will do retries. This function should be re-entrance
+	// Step 0: Check attach history
+	if _, err := DefaultAttachEntry.Get(req.VolumeId); err == nil {
+		// Already attached
+		return &csi.ControllerPublishVolumeResponse{}, nil
+	}
 	// Step 1: init ecs client and parameters
 	cs.initEcsClient()
 
@@ -291,8 +298,8 @@ func (cs *controllerServer) getdevices() []string {
 	devices := []string{}
 	files, _ := ioutil.ReadDir("/dev")
 	for _, file := range files {
-		if !file.IsDir() && strings.Contains(file.Name(), "vd") {
-			devices = append(devices, file.Name())
+		if !file.IsDir() && strings.HasPrefix(file.Name(), "vd") {
+			devices = append(devices, "/dev/"+file.Name())
 		}
 	}
 
