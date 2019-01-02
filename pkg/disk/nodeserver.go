@@ -17,14 +17,11 @@ limitations under the License.
 package disk
 
 import (
-	"fmt"
 	"os"
 	"strings"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/container-storage-interface/spec/lib/go/csi/v0"
-	"github.com/denverdino/aliyungo/common"
-	"github.com/denverdino/aliyungo/ecs"
 	"github.com/kubernetes-csi/drivers/pkg/csi-common"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
@@ -32,13 +29,7 @@ import (
 	"k8s.io/kubernetes/pkg/util/mount"
 )
 
-const (
-	nsenterPrefix = "/nsenter --mount=/proc/1/ns/mnt "
-)
-
 type nodeServer struct {
-	EcsClient *ecs.Client
-	region    common.Region
 	*csicommon.DefaultNodeServer
 }
 
@@ -52,9 +43,9 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 	}
 
 	// get source path
-	devicePath, err := ns.getAttachedDevice(req.GetVolumeId())
+	devicePath, err := DefaultAttachEntry.Get(req.GetVolumeId())
 	if err != nil {
-		log.Errorf("NodePublishVolume: %v", err.Error())
+		log.Errorf("NodePublishVolume: failed to get device path%v", err.Error())
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	log.Infof("NodePublishVolume: Get source device: %s", devicePath)
@@ -141,42 +132,4 @@ func (ns *nodeServer) NodeUnstageVolume(
 	*csi.NodeUnstageVolumeResponse, error) {
 
 	return nil, status.Error(codes.Unimplemented, "")
-}
-
-// init ecs sdk client
-func (ns *nodeServer) initEcsClient() {
-	accessKeyID, accessSecret, accessToken := GetDefaultAK()
-	ns.EcsClient = newEcsClient(accessKeyID, accessSecret, accessToken)
-}
-
-func (ns *nodeServer) getAttachedDevice(diskId string) (string, error) {
-	ns.initEcsClient()
-	regionId := GetMetaData("region-id")
-	instanceId := GetMetaData("instance-id")
-
-	ns.EcsClient.SetUserAgent(KUBERNETES_ALICLOUD_DISK_DRIVER + "/" + instanceId)
-	describeDisksRequest := &ecs.DescribeDisksArgs{
-		DiskIds:  []string{diskId},
-		RegionId: common.Region(regionId),
-	}
-
-	disks, _, err := ns.EcsClient.DescribeDisks(describeDisksRequest)
-	if err != nil {
-		return "", err
-	}
-	if len(disks) == 0 {
-		return "", fmt.Errorf("Can't find disk by id: %s", diskId)
-	}
-
-	disk := disks[0]
-	if disk.Status == ecs.DiskStatusInUse && disk.InstanceId == instanceId {
-		// From the api, disk.Device always in format like /dev/xvda, we should get /dev/vda
-		device := disk.Device
-		if strings.HasPrefix(device, "/dev/x") {
-			device = strings.Replace(device, "/dev/x", "/dev/", 1)
-		}
-		return device, nil
-	} else {
-		return "", fmt.Errorf("Disk[%s] is not attached to instance[%s]", diskId, instanceId)
-	}
 }

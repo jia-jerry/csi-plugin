@@ -233,12 +233,6 @@ func getDiskVolumeOptions(volOptions map[string]string) (*diskVolume, error) {
 	return diskVol, nil
 }
 
-func mountDisk(fsType, containerDest, partedDevice string) error {
-	cmd := fmt.Sprintf("%s mount -t %s %s %s", nsenterPrefix, fsType, partedDevice, containerDest)
-	_, err := run(cmd)
-	return err
-}
-
 func createDest(dest string) error {
 	fi, err := os.Lstat(dest)
 

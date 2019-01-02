@@ -18,10 +18,12 @@ package disk
 
 import (
 	"fmt"
+	"io/ioutil"
 	"strings"
 	"time"
 
 	"errors"
+	"sync"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/container-storage-interface/spec/lib/go/csi/v0"
@@ -38,6 +40,7 @@ type controllerServer struct {
 	region      common.Region
 	diskVolumes map[string]*csi.Volume
 	*csicommon.DefaultControllerServer
+	sync.Locker
 }
 
 var newVolumes = map[string]*csi.Volume{}
@@ -229,16 +232,28 @@ func (cs *controllerServer) ControllerUnpublishVolume(ctx context.Context, req *
 		// Step 3: wait for detach
 		if !cs.checkVolumeStatus(ecs.DiskStatusAvailable, req.VolumeId) {
 			log.Errorf("ControllerUnpublishVolume: Can't verify disk %s is detached from the instance %s", req.GetVolumeId(), GetMetaData("instance-id"))
-			return nil, fmt.Errorf("Can't verify disk %s is detached from the instance %s", req.GetVolumeId(), GetMetaData("instance-id"))
+			return nil, status.Errorf(codes.Internal, "Can't verify disk %s is detached from the instance %s", req.GetVolumeId(), GetMetaData("instance-id"))
 		}
 		log.Infof("ControllerUnpublishVolume: Success to detach disk %s from %s", req.GetVolumeId(), req.GetNodeId())
 
 	} // else, it is detached
 
+	// Step 4: Maintain attach entries
+	if err := DefaultAttachEntry.Remove(req.VolumeId); err != nil {
+		return nil, status.Errorf(codes.Internal, "ControllerUnpublishVolume: maintain attach entries failed: %v", err)
+	}
+
 	return &csi.ControllerUnpublishVolumeResponse{}, nil
 }
 
 func (cs *controllerServer) ControllerPublishVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (*csi.ControllerPublishVolumeResponse, error) {
+	// First, It is not possible to get local attached device of a VM from Alicloud API DescribeDisks
+	// We can only loop devices under /dev/vd* and calculate the difference
+	// It is the only position to maintain the attached information to the attachentry file which is used by pod volume mount.
+	//  We need this function to be call in serilized way.
+	cs.Lock()
+	defer cs.Unlock()
+
 	log.Infof("ControllerPublishVolume: Start to attach disk %s to %s", req.GetVolumeId(), req.GetNodeId())
 	// Step 1: init ecs client and parameters
 	cs.initEcsClient()
@@ -249,19 +264,60 @@ func (cs *controllerServer) ControllerPublishVolume(ctx context.Context, req *cs
 		DiskId:     req.VolumeId,
 	}
 
+	oldPaths := cs.getdevices()
+
 	if err := cs.EcsClient.AttachDisk(attachRequest); err != nil {
 		log.Errorf("ControllerPublishVolume: Fail to attach disk %s to %s", req.GetVolumeId(), req.GetNodeId())
-		return nil, err
+		return nil, status.Error(codes.Internal, err.Error())
 	}
 
 	// Step 3: wait for attach
-	if cs.checkVolumeStatus(ecs.DiskStatusInUse, req.VolumeId) {
-		log.Infof("ControllerPublishVolume: Success to attach disk %s to %s", req.GetVolumeId(), req.GetNodeId())
-
-		return &csi.ControllerPublishVolumeResponse{}, nil
+	if !cs.checkVolumeStatus(ecs.DiskStatusInUse, req.VolumeId) {
+		return nil, fmt.Errorf("Can't verify disk %s is attached to the instance %s", req.VolumeId, GetMetaData("instance-id"))
 	}
 
-	return nil, fmt.Errorf("Can't verify disk %s is attached to the instance %s", req.VolumeId, GetMetaData("instance-id"))
+	// Step 4: maintain to entries
+	log.Infof("ControllerPublishVolume: maintain attach entries")
+	newPaths := cs.getdevices()
+	newDevices := cs.calcNewDevices(oldPaths, newPaths)
+	log.Infof("ControllerPublishVolume: new devices are atached: %v", newDevices)
+	if len(newDevices) == 0 {
+		return nil, status.Error(codes.Internal, "ControllerPublishVolume: Can't get new attached device")
+	} else if err := DefaultAttachEntry.Add(req.VolumeId, newDevices[len(newDevices)-1]); err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	log.Infof("ControllerPublishVolume: Success to attach disk %s to %s", req.GetVolumeId(), req.GetNodeId())
+
+	return &csi.ControllerPublishVolumeResponse{}, nil
+}
+
+func (cs *controllerServer) getdevices() []string {
+	devices := []string{}
+	files, _ := ioutil.ReadDir("/dev")
+	for _, file := range files {
+		if !file.IsDir() && strings.Contains(file.Name(), "vd") {
+			devices = append(devices, file.Name())
+		}
+	}
+
+	return devices
+}
+
+func (cs *controllerServer) calcNewDevices(old, new []string) []string {
+	var devicePaths []string
+	for _, d := range new {
+		var isNew = true
+		for _, a := range old {
+			if d == a {
+				isNew = false
+			}
+		}
+		if isNew {
+			devicePaths = append(devicePaths, d)
+		}
+	}
+
+	return devicePaths
 }
 
 func (cs *controllerServer) checkVolumeStatus(expectStatus ecs.DiskStatus, diskId string) bool {
@@ -270,7 +326,7 @@ func (cs *controllerServer) checkVolumeStatus(expectStatus ecs.DiskStatus, diskI
 		RegionId: common.Region(GetMetaData("region-id")),
 	}
 
-	for tryCount := 3; tryCount > 0; tryCount-- {
+	for tryCount := 10; tryCount > 0; tryCount-- {
 		time.Sleep(1000 * time.Millisecond)
 		disks, _, err := cs.EcsClient.DescribeDisks(describeDisksRequest)
 		if err != nil {
