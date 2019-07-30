@@ -7,7 +7,7 @@ COPY . .
 RUN GIT_SHA=`git rev-parse --short HEAD || echo "HEAD"` \
     && export GOARCH="amd64" \
     && export GOOS="linux" \
-    && export GO_ENABLED=0 \
+    && export CGO_ENABLED=0 \
     && branch="img-v1.0.0" \
     && version=$(git describe --tags `git rev-list --tags --max-count=1`) \
     && commitId=$GIT_SHA \
