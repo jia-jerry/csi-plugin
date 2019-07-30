@@ -7,16 +7,16 @@ COPY . .
 RUN GIT_SHA=`git rev-parse --short HEAD || echo "HEAD"` \
     && export GOARCH="amd64" \
     && export GOOS="linux" \
-    && export GO_ENABLED=0 \
+    && export CGO_ENABLED=0 \
     && branch="img-v1.0.0" \
-    && version=$(git describe --tags `git rev-list --tags --max-count=1`) \
+    && version=$(git describe --tags) \
     && commitId=$GIT_SHA \
     && buildTime=`date "+%Y-%m-%d-%H:%M:%S"` \
     && go build -ldflags "-X main._BRANCH_='$branch' -X main._VERSION_='$version-$commitId' -X main._BUILDTIME_='$buildTime'" -o plugin.csi.alibabacloud.com \
     && mv plugin.csi.alibabacloud.com /go/bin
 
 ### csi plugin ###
-FROM centos:7.4.1708
+FROM centos:7.6.1810 
 LABEL maintainers="Alibaba Cloud Authors"
 LABEL description="Alibaba Cloud CSI Plugin"
 
