@@ -99,7 +99,7 @@ func IsMounted(mountPath string) bool {
 }
 
 func Umount(mountPath string) bool {
-	cmd := fmt.Sprintf("umount -f %s", mountPath)
+	cmd := fmt.Sprintf("umount %s", mountPath)
 	_, err := Run(cmd)
 	if err != nil {
 		return false
@@ -193,14 +193,14 @@ func GetLocalAK() (string, string) {
 	if IsFileExisting(USER_AKID) && IsFileExisting(USER_AKSECRET) {
 		raw, err := ioutil.ReadFile(USER_AKID)
 		if err != nil {
-			log.Error("Read User AK ID file error:", err.Error())
+			log.Errorf("Read User AK ID file error: %s", err.Error())
 			return "", ""
 		}
 		accessKeyID = string(raw)
 
 		raw, err = ioutil.ReadFile(USER_AKSECRET)
 		if err != nil {
-			log.Error("Read User AK Secret file error:", err.Error())
+			log.Errorf("Read User AK Secret file error: %s", err.Error())
 			return "", ""
 		}
 		accessSecret = string(raw)
